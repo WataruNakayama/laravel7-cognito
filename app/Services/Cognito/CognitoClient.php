@@ -3,7 +3,6 @@
 
 namespace App\Services\Cognito;
 
-use Aws\CognitoIdentityProvider\Exception\CognitoIdentityProviderException;
 use Aws\Result;
 use Aws\CognitoIdentityProvider\CognitoIdentityProviderClient;
 
@@ -13,15 +12,6 @@ use Aws\CognitoIdentityProvider\CognitoIdentityProviderClient;
  */
 class CognitoClient
 {
-    public const NEW_PASSWORD_CHALLENGE = 'NEW_PASSWORD_REQUIRED';
-    public const FORCE_PASSWORD_STATUS  = 'FORCE_CHANGE_PASSWORD';
-    public const RESET_REQUIRED         = 'PasswordResetRequiredException';
-    public const USER_NOT_FOUND         = 'UserNotFoundException';
-    public const USERNAME_EXISTS        = 'UsernameExistsException';
-    public const INVALID_PASSWORD       = 'InvalidPasswordException';
-    public const CODE_MISMATCH          = 'CodeMismatchException';
-    public const EXPIRED_CODE           = 'ExpiredCodeException';
-
     /**
      * Cognitoクライアント
      * @var CognitoIdentityProviderClient
