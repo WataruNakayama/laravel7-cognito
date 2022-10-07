@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Providers\RouteServiceProvider;
 use App\Services\Cognito\CognitoClient;
 use App\User;
+use Illuminate\Contracts\Container\BindingResolutionException;
 use Illuminate\Foundation\Auth\RegistersUsers;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
@@ -60,17 +61,28 @@ class RegisterController extends Controller
     /**
      * Create a new user instance after a valid registration.
      *
-     * @param  array  $data
+     * @param array $data
      * @return User
+     * @throws BindingResolutionException
      */
-    protected function create(array $data)
+    protected function create(array $data): User
     {
-        app()
-            ->make(CognitoClient::class)
-            ->adminCreateUser($data['email'], $data['password']);
+        $client = app()->make(CognitoClient::class);
+        $email = $data['email'];
+        $password = $data['password'];
+
+        // ユーザーを作成
+        $result = $client->adminCreateUser($email, $password);
+
+        // メールアドレスを確認済みにする（Proffitではパスワードリセットのタイミングで実行する）
+        $client->forceVerifyUserEmail($email);
+
+        // 強制的にパスワード変更済みにする（Proffitではパスワードリセットのタイミングで実行する）
+        $client->adminSetUserPassword($email, $password);
 
         return User::create([
             'name' => $data['name'],
+            'cognito_username' => $result->get("User")["Username"],
             'email' => $data['email'],
             'password' => Hash::make($data['password']),
         ]);
