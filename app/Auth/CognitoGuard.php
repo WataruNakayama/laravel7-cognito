@@ -3,83 +3,164 @@
 namespace App\Auth;
 
 use App\Services\Cognito\CognitoClient;
-use Aws\Result;
 use Exception;
-use Illuminate\Auth\SessionGuard;
+use Illuminate\Auth\GuardHelpers;
+use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Contracts\Auth\Guard;
 use Illuminate\Contracts\Auth\UserProvider;
-use Illuminate\Contracts\Session\Session;
+use Illuminate\Contracts\Container\BindingResolutionException;
 use Symfony\Component\HttpFoundation\Request;
 
-class CognitoGuard extends SessionGuard
+class CognitoGuard implements Guard
 {
+    use GuardHelpers;
+
+    /**
+     * The request instance.
+     *
+     * @var \Illuminate\Http\Request
+     */
+    protected $request;
+
+    /**
+     * @var bool
+     */
+    protected $doneLogin = false;
+
+    /**
+     * @var string
+     */
+    protected $typeName;
+
     /**
      * @var CognitoClient
      */
     protected CognitoClient $client;
 
     /**
-     * CognitoGuard constructor.
-     * @param string $name
-     * @param CognitoClient $client
+     * ProffitMartGuard constructor.
      * @param UserProvider $provider
-     * @param Session $session
-     * @param null|Request $request
-
+     * @param \Illuminate\Http\Request $request
      */
-    public function __construct(
-        string $name,
-        CognitoClient $client,
-        UserProvider $provider,
-        Session $session,
-        ?Request $request = null
-    ) {
-        $this->client = $client;
-        parent::__construct($name, $provider, $session, $request);
+    public function __construct(UserProvider $provider, Request $request, $name)
+    {
+        $this->request = $request;
+        $this->provider = $provider;
+        $this->typeName = $name;
     }
 
     /**
-     * @param mixed $user
+     * Get the currently authenticated user.
+     *
+     * @return Authenticatable|null
+     */
+    public function user()
+    {
+        if ($this->user) {
+            return $this->user;
+        }
+
+        if (!$this->doneLogin) {
+            $this->user = $this->login();
+        }
+
+        return $this->user;
+    }
+
+    /**
+     * ログイン処理（cookieの値からログインユーザーを復元する）
+     * @return Authenticatable|null
+     * @throws BindingResolutionException
+     */
+    public function login()
+    {
+        $this->doneLogin = true;
+
+        /** cookieの値 */
+        $cookieValue = [];
+        try {
+            $cookieValue = json_decode(request()->cookie("laravel-cognito"), true);
+        } catch (Exception $exception) {
+            // エラーは握り潰す
+            $exception;
+        }
+
+        $cookieValue =  array_merge([
+            // ユーザー種別
+            "type" => "guest",
+            // Cognito上のUsername
+            "username" => "",
+            // IDトークン（主に認可用に引き回すトークン）
+            "id_token" => "",
+            // アクセストークン（emailやpasswordの属性更新などのセキュアな処理を呼ぶときに必要になるトークン）
+            "access_token" => "",
+            // リフレッシュトークン
+            "refresh_token" => "",
+        ], $cookieValue ?: []);
+
+        if ($cookieValue["access_token"]) {
+            // アクセストークンがある場合、毎回Cognitoに問い合わせて検証する
+//            $test = $this
+//                ->client
+//                ->getUser($cookieValue["access_token"]);
+//
+//            $test;
+        }
+
+        // Cognito上のユーザー名で取得する
+        $user = $this->provider->retrieveByUsername($cookieValue["username"]);
+        $this->user = $user;
+
+        return $user;
+    }
+
+    /**
+     * ID/passwordを指定したログインの実行
+     * @param array $credentials
+     * @return Authenticatable|null
+     */
+    public function loginByDb(array $credentials)
+    {
+        $this->doneLogin = true;
+
+        $result = $this->provider->retrieveByCredentials($credentials);
+
+        if ($result && $result["model"]) {
+            $this->setUser($result["model"]);
+            return $result;
+        }
+
+        return null;
+    }
+
+    /**
+     * ID/passwordを指定したログインの実行
+     * @param array $credentials
+     * @return Authenticatable|null
+     */
+    public function loginByEmail(array $credentials)
+    {
+        $this->doneLogin = true;
+
+        // メールアドレスでDBから単体Userを取得して返す
+        $result = $this->provider->retrieveByCredentials($credentials);
+
+        if ($result) {
+            $this->setUser($result["model"]);
+            return $result;
+        }
+
+        return null;
+    }
+
+    /**
+     * Validate a user's credentials.
+     *
      * @param array $credentials
      * @return bool
      */
-    protected function hasValidCredentials($user, $credentials): bool
+    public function validate(array $credentials = [])
     {
-        $isAuthenticated = false;
-
-        try {
-            // 指定されたメールアドレスとパスワードで認証処理を実行
-            $isAuthenticated = (bool)$this
-                ->client
-                ->adminInitiateAuth($credentials['email'], $credentials['password']);
-        } catch (Exception $e) {
-            // 認証エラーは握り潰す
-            $e;
-        }
-
-        return $isAuthenticated;
-    }
-
-    /**
-     * Attempt to authenticate a user using the given credentials.
-     *
-     * @param  array  $credentials
-     * @param  bool   $remember
-     * @throws
-     * @return bool
-     */
-    public function attempt(array $credentials = [], $remember = false): bool
-    {
-        $this->fireAttemptEvent($credentials, $remember);
-
-        $this->lastAttempted = $user = $this->provider->retrieveByCredentials($credentials);
-
-        if ($this->hasValidCredentials($user, $credentials)) {
-            $this->login($user, $remember);
-            return true;
-        }
-
-        $this->fireFailedEvent($user, $credentials);
-
-        return false;
+        return true;
     }
 }

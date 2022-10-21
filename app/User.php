@@ -2,7 +2,7 @@
 
 namespace App;
 
-use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Notifications\PasswordResetUserNotification;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
@@ -19,10 +19,11 @@ class User extends Authenticatable
      * @var array
      */
     protected $fillable = [
+        'status',
         'cognito_username',
         'name',
         'email',
-        'password',
+        'email_verified'
     ];
 
     /**
@@ -31,7 +32,7 @@ class User extends Authenticatable
      * @var array
      */
     protected $hidden = [
-        'password', 'remember_token',
+        'remember_token',
     ];
 
     /**
@@ -42,4 +43,9 @@ class User extends Authenticatable
     protected $casts = [
         'email_verified_at' => 'datetime',
     ];
+
+    public function sendPasswordResetNotification($token): void
+    {
+        $this->notify(new PasswordResetUserNotification($token));
+    }
 }

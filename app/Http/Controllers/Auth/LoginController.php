@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Providers\RouteServiceProvider;
 use Aws\CognitoIdentityProvider\Exception\CognitoIdentityProviderException;
 use Exception;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Foundation\Auth\AuthenticatesUsers;
@@ -49,19 +50,43 @@ class LoginController extends Controller
      */
     public function login(Request $request)
     {
-        $this->validateLogin($request);
-
-        if ($this->hasTooManyLoginAttempts($request)) {
-            $this->fireLockoutEvent($request);
-
-            $this->sendLockoutResponse($request);
-        }
-
         try
         {
-            if ($this->attemptLogin($request)) {
-                return $this->sendLoginResponse($request);
+            $credentials = $request->only(["email", "password"]);
+
+            // ログイン実行
+            $result = Auth::guard("web")->loginByDb($credentials);
+
+            if (!$result) {
+                // ログインできなかった場合
+                throw ValidationException::withMessages([
+                    $this->username() => "Login Failed.",
+                ]);
             }
+
+            /** @var $user array Cognitoの情報 */
+            $cognito = $result["cognito"];
+            $auth = $cognito["auth"]["AuthenticationResult"];
+
+            /** cookieに保持させる値 */
+            $addCookieStr = collect([
+                // ユーザー種別
+                "type" => "user",
+                // Cognito上のUsername
+                "username" => $cognito["user"]["Username"],
+                // IDトークン（主に認可用に引き回すトークン）
+                "id_token" => $auth["IdToken"],
+                // アクセストークン（emailやpasswordの属性更新などのセキュアな処理を呼ぶときに必要になるトークン）
+                "access_token" => $auth["AccessToken"],
+                // リフレッシュトークン
+                "refresh_token" => $auth["RefreshToken"],
+            ])->toJson();
+
+            $cookie = cookie()->forever("laravel-cognito", $addCookieStr);
+            cookie()->queue($cookie);
+
+            // 最新のlogin_tokenでcookieを更新する
+            return redirect("/home");
         } catch (CognitoIdentityProviderException $c) {
             return $this->sendFailedCognitoResponse($c);
         } catch (Exception $e) {
@@ -77,4 +102,16 @@ class LoginController extends Controller
             $this->username() => $exception->getAwsErrorMessage(),
         ]);
     }
+
+    /**
+     * Log the user out of the application.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\RedirectResponse|\Illuminate\Http\JsonResponse
+     */
+    public function logout(Request $request)
+    {
+        return redirect('/')->withCookie(cookie()->forget("laravel-cognito"));
+    }
+
 }

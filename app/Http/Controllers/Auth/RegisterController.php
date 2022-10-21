@@ -6,10 +6,15 @@ use App\Http\Controllers\Controller;
 use App\Providers\RouteServiceProvider;
 use App\Services\Cognito\CognitoClient;
 use App\User;
-use Illuminate\Contracts\Container\BindingResolutionException;
+use Carbon\Carbon;
+use Illuminate\View\View;
+use Illuminate\Contracts\View\Factory;
 use Illuminate\Foundation\Auth\RegistersUsers;
-use Illuminate\Support\Facades\Hash;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Password;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Contracts\Foundation\Application;
 
 class RegisterController extends Controller
 {
@@ -47,44 +52,98 @@ class RegisterController extends Controller
      * Get a validator for an incoming registration request.
      *
      * @param  array  $data
-     * @return \Illuminate\Contracts\Validation\Validator
+     * @return Validator
      */
     protected function validator(array $data)
     {
         return Validator::make($data, [
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'string', 'email', 'max:255', 'unique:users'],
-            'password' => ['required', 'string', 'min:8', 'confirmed'],
         ]);
     }
 
     /**
-     * Create a new user instance after a valid registration.
+     * 仮登録処理
      *
-     * @param array $data
-     * @return User
-     * @throws BindingResolutionException
+     * @param  Request  $request
      */
-    protected function create(array $data): User
+    public function register(Request $request)
     {
-        $client = app()->make(CognitoClient::class);
-        $email = $data['email'];
-        $password = $data['password'];
+        DB::transaction(function () use ($request) {
+            // バリデーション
+            $this->validator($request->all())->validate();
 
-        // ユーザーを作成
-        $result = $client->adminCreateUser($email, $password);
+            $params = $request->all();
 
-        // メールアドレスを確認済みにする（Proffitではパスワードリセットのタイミングで実行する）
-        $client->forceVerifyUserEmail($email);
+            $client = app()->make(CognitoClient::class);
+            $email = $params['email'];
 
-        // 強制的にパスワード変更済みにする（Proffitではパスワードリセットのタイミングで実行する）
-        $client->adminSetUserPassword($email, $password);
+            // Cognito上でユーザーを作成
+            $result = $client->adminCreateUser($email);
 
-        return User::create([
-            'name' => $data['name'],
-            'cognito_username' => $result->get("User")["Username"],
-            'email' => $data['email'],
-            'password' => Hash::make($data['password']),
+            // DB上に仮登録状態のユーザーを作成
+            User::create([
+                'name' => $params['name'],
+                'cognito_username' => $result->get("User")["Username"],
+                'email' => $email,
+            ]);
+
+            // パスワード更新メールを送信
+            Password::sendResetLink(['email' => $email]);
+        });
+
+        return view('auth.register_complete');
+    }
+
+    /**
+     * 本登録ページ（パスワード設定）の表示
+     * @param Request $request
+     * @return Application|Factory|View
+     */
+    public function showPasswordForm(Request $request)
+    {
+        return view('auth.passwords.register', [
+            "token" => $request->get("token"),
+            "email" => $request->get("email"),
         ]);
+    }
+
+    /**
+     * 本登録の実行
+     * @param Request $request
+     */
+    public function updatePassword(Request $request)
+    {
+        DB::transaction(function () use ($request) {
+            $email = $request->get("email");
+            $password = $request->get("password");
+
+            // DBからユーザー情報を取得
+            User::query()
+                ->where("email", $email)
+                ->firstOrFail()
+                ->fill([
+                    // ステータスを本登録に更新
+                    "status" => 2,
+                    "email_verified_at" => Carbon::now(),
+                ])
+                ->save();
+
+            $client = app()->make(CognitoClient::class);
+
+            // メールアドレスを確認済みにする
+            $client->forceVerifyUserEmail($email);
+
+            // 強制的にパスワード変更済みにする
+            $client->adminSetUserPassword($email, $password);
+        });
+
+        // ログインページに戻す
+        return redirect('/login');
+    }
+
+    public function complete()
+    {
+        return view('auth.register_complete');
     }
 }

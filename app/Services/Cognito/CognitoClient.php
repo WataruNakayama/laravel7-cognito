@@ -77,13 +77,12 @@ class CognitoClient
      * @param string $password パスワード
      * @return Result
      */
-    public function adminCreateUser(string $email, string $password): Result
+    public function adminCreateUser(string $email, ?string $password = null): Result
     {
-        return $this->client->adminCreateUser([
+        $attributes = [
             'UserPoolId' => $this->userPoolId,
             'ClientId' => $this->clientId,
             'Username' => $email,
-            'TemporaryPassword' => $password,
             'UserAttributes' => [
                 [
                     'Name' => 'email',
@@ -97,7 +96,13 @@ class CognitoClient
             // Cognito側から確認メールを送信させない
             "DesiredDeliveryMediums" => [],
             "MessageAction" => "SUPPRESS"
-        ]);
+        ];
+
+        if ($password) {
+            $attributes["TemporaryPassword"] = $password;
+        }
+
+        return $this->client->adminCreateUser($attributes);
     }
 
     /**
@@ -238,6 +243,18 @@ class CognitoClient
     }
 
     /**
+     * トークンでユーザーを取得する
+     * @param string $accessToken アクセストークン
+     * @return Result
+     */
+    public function getUser(string $accessToken): Result
+    {
+        return $this->client->getUser([
+            'AccessToken' => $accessToken,
+        ]);
+    }
+
+    /**
      * 指定ユーザーでログイン処理を実行
      * （主にアクセストークン情報などを取得するために実行する）
      * @param string $email メールアドレス
@@ -247,13 +264,13 @@ class CognitoClient
     public function adminInitiateAuth(string $email, string $password): Result
     {
         return $this->client->adminInitiateAuth([
-            'AuthFlow' => 'ADMIN_NO_SRP_AUTH',
+            'AuthFlow' => 'ADMIN_NO_SRP_AUTH', // TODO: 引数がdeprecatedなので、正しい形に直す
             'ClientId' => $this->clientId,
             'UserPoolId' => $this->userPoolId,
             'AuthParameters' => [
                 'USERNAME' => $email,
                 'PASSWORD' => $password,
-                'SECRET_HASH' => $this->cognitoSecretHash($email),
+                'SECRET_HASH' => $this->cognitoSecretHash($email), // TODO: cognito側の設定次第で不要では？
             ],
         ]);
     }
