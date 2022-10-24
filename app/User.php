@@ -3,8 +3,10 @@
 namespace App;
 
 use App\Notifications\PasswordResetUserNotification;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use App\Models\Session;
 
 /**
  * @method static create(array $array)
@@ -47,5 +49,18 @@ class User extends Authenticatable
     public function sendPasswordResetNotification($token): void
     {
         $this->notify(new PasswordResetUserNotification($token));
+    }
+
+    /**
+     * セッションへのリレーション設定
+     * @return HasMany
+     */
+    public function sessions(): HasMany
+    {
+        return $this->hasMany(
+            Session::class,
+            "cognito_username",
+            "cognito_username"
+        );
     }
 }

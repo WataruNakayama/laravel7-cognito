@@ -56,6 +56,17 @@ services:
       - 1025:1025
     networks:
       - app-network
+  adminer:
+    container_name: adminer
+    hostname: adminer
+    image: adminer:4.7.5
+    restart: always
+    ports:
+      - 8080:8080
+    depends_on:
+      - db
+    networks:
+      - app-network
 
 networks:
   app-network:

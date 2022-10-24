@@ -2,6 +2,7 @@
 
 namespace App\Auth;
 
+use App\Models\Session;
 use App\Services\Cognito\CognitoClient;
 use Exception;
 use Illuminate\Auth\GuardHelpers;
@@ -76,39 +77,21 @@ class CognitoGuard implements Guard
     {
         $this->doneLogin = true;
 
-        /** cookieの値 */
-        $cookieValue = [];
-        try {
-            $cookieValue = json_decode(request()->cookie("laravel-cognito"), true);
-        } catch (Exception $exception) {
-            // エラーは握り潰す
-            $exception;
-        }
+        /** cookieから取得したセッションID */
+        $sessionId = request()->cookie("cognito-session-id");
 
-        $cookieValue =  array_merge([
-            // ユーザー種別
-            "type" => "guest",
-            // Cognito上のUsername
-            "username" => "",
-            // IDトークン（主に認可用に引き回すトークン）
-            "id_token" => "",
-            // アクセストークン（emailやpasswordの属性更新などのセキュアな処理を呼ぶときに必要になるトークン）
-            "access_token" => "",
-            // リフレッシュトークン
-            "refresh_token" => "",
-        ], $cookieValue ?: []);
+        $session = Session::find($sessionId);
+        $accessToken = $session->access_token ?? "";
 
-        if ($cookieValue["access_token"]) {
+        if ($accessToken) {
             // アクセストークンがある場合、毎回Cognitoに問い合わせて検証する
-//            $test = $this
-//                ->client
-//                ->getUser($cookieValue["access_token"]);
-//
-//            $test;
+            app()
+                ->make(CognitoClient::class)
+                ->getUser($accessToken);
         }
 
         // Cognito上のユーザー名で取得する
-        $user = $this->provider->retrieveByUsername($cookieValue["username"]);
+        $user = $this->provider->retrieveByUsername($accessToken ? $session->cognito_username : "");
         $this->user = $user;
 
         return $user;
