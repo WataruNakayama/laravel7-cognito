@@ -4,7 +4,6 @@ namespace App\Auth;
 
 use App\Models\Session;
 use App\Services\Cognito\CognitoClient;
-use Exception;
 use Illuminate\Auth\GuardHelpers;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Auth\Guard;
